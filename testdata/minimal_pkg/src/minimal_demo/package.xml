@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package format="3">
+  <name>minimal_demo</name>
+  <version>0.0.1</version>
+  <description>Minimal package used by the px4-preflight-runner self-test.</description>
+  <maintainer email="dev@harelab.ucsc.edu">harelab</maintainer>
+  <license>BSD-3-Clause</license>
+
+  <buildtool_depend>ament_cmake</buildtool_depend>
+  <buildtool_depend>ament_cmake_python</buildtool_depend>
+
+  <depend>rclpy</depend>
+  <depend>px4_msgs</depend>
+
+  <test_depend>ament_cmake_pytest</test_depend>
+  <test_depend>python3-pytest</test_depend>
+
+  <export>
+    <build_type>ament_cmake</build_type>
+  </export>
+</package>

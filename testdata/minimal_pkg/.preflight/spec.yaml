@@ -1,0 +1,16 @@
+version: 1
+
+defaults:
+  ros_distro: humble
+  px4_ref: v1.16.0
+  container_image: ghcr.io/harelab-ucsc/px4-preflight-runner:humble
+
+environments:
+  ros_unit:
+    container_image: ghcr.io/harelab-ucsc/px4-preflight-runner:humble
+
+tests:
+  - name: minimal-ros-unit
+    type: ros_unit
+    environment: ros_unit
+    packages: [minimal_demo]

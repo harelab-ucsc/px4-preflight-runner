@@ -1,0 +1,8 @@
+version: 1
+airframes:
+  base:
+    vehicle: iris
+tests:
+  - name: bad-airframe
+    type: sim
+    airframe: not_defined

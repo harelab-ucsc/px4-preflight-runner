@@ -1,0 +1,66 @@
+name: Run Preflight Case
+description: >
+  Executes one resolved test case from the matrix produced by
+  parse-spec. Handles ros_unit, px4_build, and sim case types.
+
+inputs:
+  case-json:
+    description: JSON object for one matrix entry (typically toJson(matrix)).
+    required: true
+  repo-root:
+    description: Path to the checked-out caller repo on disk.
+    required: false
+    default: ${{ github.workspace }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install runner deps
+      shell: bash
+      run: pip install --quiet pyyaml pyulog
+
+    - name: Restore PX4 ccache
+      if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
+      uses: actions/cache@v4
+      with:
+        path: ~/.ccache
+        key: px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-${{ runner.os }}
+        restore-keys: |
+          px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-
+
+    - name: Restore Micro-XRCE-DDS Agent
+      if: ${{ fromJson(inputs.case-json).type == 'sim' }}
+      id: xrce-cache
+      uses: actions/cache@v4
+      with:
+        path: /opt/MicroXRCEAgent
+        key: xrce-agent-v2.4.3-${{ runner.os }}
+
+    - name: Execute case
+      shell: bash
+      env:
+        CASE_JSON: ${{ inputs.case-json }}
+        REPO_ROOT: ${{ inputs.repo-root }}
+        ACTION_ROOT: ${{ github.action_path }}
+        XRCE_CACHE_HIT: ${{ steps.xrce-cache.outputs.cache-hit }}
+      run: bash "${ACTION_ROOT}/../../scripts/run_case.sh"
+
+    - name: Upload artifacts
+      # `always()` so artifacts upload on test failure too — that's when
+      # they're most useful for debugging.
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: preflight-${{ fromJson(inputs.case-json).name }}-${{ github.run_id }}
+        # The runner script's EXIT trap already mirrors /root/.ros/log into
+        # /tmp/preflight_output/ros_launch_logs, so a single path is enough.
+        path: /tmp/preflight_output/
+        # warn rather than ignore so that a silently-empty artifact dir is
+        # visible in the summary
+        if-no-files-found: warn
+        retention-days: 14

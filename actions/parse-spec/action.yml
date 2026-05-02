@@ -1,0 +1,38 @@
+name: Parse Preflight Spec
+description: >
+  Reads .preflight/spec.yaml from the checked-out caller repo and emits
+  a GitHub Actions matrix JSON string suitable for use with strategy.matrix.
+
+inputs:
+  spec-path:
+    description: Path to spec.yaml relative to the caller repo root.
+    required: false
+    default: .preflight/spec.yaml
+
+outputs:
+  matrix:
+    description: JSON matrix object (with an 'include' array) for strategy.matrix.
+    value: ${{ steps.parse.outputs.matrix }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.11'
+
+    - name: Install parser deps
+      shell: bash
+      run: pip install --quiet pyyaml
+
+    - name: Parse spec
+      id: parse
+      shell: bash
+      env:
+        SPEC_PATH: ${{ inputs.spec-path }}
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        MATRIX=$(python3 "${ACTION_PATH}/../../scripts/parse_spec.py" "${SPEC_PATH}")
+        echo "matrix=${MATRIX}" >> "${GITHUB_OUTPUT}"

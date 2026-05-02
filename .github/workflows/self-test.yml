@@ -1,0 +1,125 @@
+name: Self-test
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: ['**']
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Layer 1: static checks ──────────────────────────────────────────────
+  lint:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install lint deps
+        run: |
+          pip install --quiet pyyaml pytest yamllint
+          curl -sSL https://github.com/rhysd/actionlint/releases/latest/download/actionlint_linux_amd64.tar.gz \
+            | tar xz -C /usr/local/bin actionlint
+          sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
+
+      - name: actionlint
+        run: actionlint .github/workflows/*.yml
+
+      - name: shellcheck
+        run: shellcheck scripts/*.sh
+
+      - name: yamllint
+        run: yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: disable, indentation: {indent-sequences: consistent}}}" testdata/ docker/
+
+      - name: Python unit tests
+        run: pytest tests/ -v
+
+  # ── Layer 2: parser fixture test ────────────────────────────────────────
+  parse-fixture:
+    runs-on: ubuntu-22.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: ./actions/parse-spec
+        id: parse
+        with:
+          spec-path: testdata/minimal_pkg/.preflight/spec.yaml
+
+      - name: Validate matrix output
+        run: |
+          echo '${{ steps.parse.outputs.matrix }}' | python3 -c "
+          import json, sys
+          m = json.load(sys.stdin)
+          assert 'include' in m, 'missing include key'
+          assert m['include'], 'empty matrix'
+          for case in m['include']:
+              assert case.get('name'), f'missing name in {case}'
+              assert case.get('type'), f'missing type in {case}'
+          print(f'matrix OK: {len(m[\"include\"])} case(s)')
+          "
+
+  # ── Layer 3: ROS-only fixture test ──────────────────────────────────────
+  ros-fixture:
+    runs-on: ubuntu-22.04
+    needs: parse-fixture
+    container:
+      image: ghcr.io/${{ github.repository_owner }}/px4-preflight-runner:humble
+      options: --user root
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Stage minimal caller repo
+        run: |
+          mkdir -p /tmp/caller
+          cp -r testdata/minimal_pkg/. /tmp/caller/
+
+      - uses: ./actions/run-case
+        with:
+          case-json: |
+            {
+              "name": "ros-unit-fixture",
+              "type": "ros_unit",
+              "ros_distro": "humble",
+              "px4_ref": "v1.16.0",
+              "packages": ["minimal_demo"],
+              "container_image": "ghcr.io/${{ github.repository_owner }}/px4-preflight-runner:humble",
+              "ros_workspace_extra": {}
+            }
+          repo-root: /tmp/caller
+
+  # ── Layer 5: negative spec rejection ────────────────────────────────────
+  negative:
+    runs-on: ubuntu-22.04
+    needs: lint
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - run: pip install --quiet pyyaml
+
+      - name: Invalid type fails parser
+        run: |
+          cat > /tmp/bad.yaml <<EOF
+          version: 1
+          tests:
+            - {name: x, type: invalid_type}
+          EOF
+          if python3 scripts/parse_spec.py /tmp/bad.yaml; then
+            echo "expected parser to fail" >&2
+            exit 1
+          fi
+
+      - name: Missing airframe ref fails parser
+        run: |
+          if python3 scripts/parse_spec.py testdata/bad_airframe_ref.yaml; then
+            echo "expected parser to fail" >&2
+            exit 1
+          fi
