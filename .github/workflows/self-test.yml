@@ -35,7 +35,7 @@ jobs:
         run: shellcheck scripts/*.sh
 
       - name: yamllint
-        run: yamllint -d "{extends: default, rules: {line-length: disable, document-start: disable, truthy: disable, indentation: {indent-sequences: consistent}}}" testdata/ docker/
+        run: yamllint -c .yamllint.yaml testdata/ docker/
 
       - name: Python unit tests
         run: pytest tests/ -v
