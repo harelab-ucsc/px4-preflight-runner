@@ -15,15 +15,11 @@ inputs:
 runs:
   using: composite
   steps:
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: '3.11'
-
-    - name: Install runner deps
-      shell: bash
-      run: pip install --quiet pyyaml pyulog
-
+    # The runner container ships Python 3.10 + pyyaml + pyulog + jinja2
+    # pre-installed (see docker/Dockerfile). We deliberately do NOT call
+    # actions/setup-python here: it overlays a hosted-toolcache Python whose
+    # pip shebang points at /opt/hostedtoolcache/... — a path that doesn't
+    # exist inside our container, breaking every `pip` invocation.
     - name: Restore PX4 ccache
       if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
       uses: actions/cache@v4
