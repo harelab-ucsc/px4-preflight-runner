@@ -1,0 +1,82 @@
+name: Publish Hawkeye replay bundle
+description: >
+  Builds Hawkeye's WASM artifacts at a pinned commit and assembles a
+  per-case directory containing the artifacts plus a copy of the case's
+  ULog (renamed to flight.ulg) and an auto-loading host page. The output
+  directory is ready to be uploaded as a Pages artifact or pushed to a
+  gh-pages subpath.
+
+  Designed to be optional: if this action fails, the caller's preflight
+  pipeline should not fail. Caller is responsible for wiring `continue-on-error`.
+
+inputs:
+  ulog-path:
+    description: Path to the .ulg file to embed (auto-renamed to flight.ulg).
+    required: true
+  case-name:
+    description: Used to label the bundle directory (e.g. offboard-waypoint-mission).
+    required: true
+  output-dir:
+    description: Where to write the bundle. Caller usually points this at a
+                 staging dir that aggregates multiple cases into one Pages
+                 deploy.
+    required: false
+    default: ${{ github.workspace }}/replay_pages
+
+outputs:
+  bundle-path:
+    description: Absolute path of the assembled per-case bundle directory.
+    value: ${{ steps.assemble.outputs.bundle-path }}
+
+runs:
+  using: composite
+  steps:
+    # Emscripten in a setup action — keeps the runner image free of
+    # ~500 MB of emsdk that's only needed by this optional pipeline.
+    - name: Set up Emscripten
+      uses: mymindstorm/setup-emsdk@v14
+      with:
+        version: '3.1.61'
+        actions-cache-folder: 'emsdk-cache'
+
+    # Cache the Hawkeye WASM build keyed on the pinned commit. After the
+    # first run this is just a download + extract; rebuilds only happen
+    # when the pin in build_hawkeye_wasm.sh moves.
+    - name: Restore Hawkeye WASM cache
+      id: hawkeye-cache
+      uses: actions/cache@v4
+      with:
+        path: ${{ github.workspace }}/.hawkeye-wasm
+        key: hawkeye-wasm-${{ hashFiles('scripts/build_hawkeye_wasm.sh') }}
+
+    - name: Build Hawkeye WASM
+      if: steps.hawkeye-cache.outputs.cache-hit != 'true'
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+        OUT: ${{ github.workspace }}/.hawkeye-wasm
+      run: bash "${ACTION_PATH}/../../scripts/build_hawkeye_wasm.sh" "${OUT}"
+
+    - name: Assemble bundle
+      id: assemble
+      shell: bash
+      env:
+        ULOG: ${{ inputs.ulog-path }}
+        CASE: ${{ inputs.case-name }}
+        OUT_BASE: ${{ inputs.output-dir }}
+        ACTION_PATH: ${{ github.action_path }}
+        WASM_DIR: ${{ github.workspace }}/.hawkeye-wasm
+      run: |
+        set -euo pipefail
+        DEST="${OUT_BASE}/${CASE}"
+        mkdir -p "${DEST}"
+        cp "${WASM_DIR}/hawkeye.js" "${DEST}/"
+        cp "${WASM_DIR}/hawkeye.wasm" "${DEST}/"
+        if [ -f "${WASM_DIR}/hawkeye.data" ]; then
+          cp "${WASM_DIR}/hawkeye.data" "${DEST}/"
+        fi
+        cp "${WASM_DIR}/hawkeye_commit.txt" "${DEST}/"
+        cp "${ACTION_PATH}/../../templates/replay_index.html" "${DEST}/index.html"
+        cp "${ULOG}" "${DEST}/flight.ulg"
+        echo "bundle-path=${DEST}" >> "${GITHUB_OUTPUT}"
+        ls -la "${DEST}"
