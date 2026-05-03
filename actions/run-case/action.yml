@@ -21,38 +21,35 @@ runs:
     # pip shebang points at /opt/hostedtoolcache/... — a path that doesn't
     # exist inside our container, breaking every `pip` invocation.
 
-    # Resolve every external ROS repo's version to its actual commit SHA via
-    # git ls-remote so that a push to a floating ref (e.g. 'main') busts the
-    # cache even when spec.yaml hasn't changed.
-    - name: Compute ROS external deps cache key
-      id: ros-deps-key
-      if: ${{ fromJson(inputs.case-json).type != 'px4_build' }}
+    # Resolve every external repo ref to its actual commit SHA so all cache
+    # keys are tied to content rather than mutable branch names.
+    - name: Compute cache keys
+      id: cache-keys
       shell: bash
       env:
         CASE_JSON: ${{ inputs.case-json }}
       run: |
-        key=$(python3 "${GITHUB_ACTION_PATH}/../../scripts/compute_ros_deps_key.py")
-        echo "key=${key}" >> "${GITHUB_OUTPUT}"
+        python3 "${GITHUB_ACTION_PATH}/../../scripts/compute_cache_keys.py" \
+          >> "${GITHUB_OUTPUT}"
 
     # Pre-built colcon install for px4_msgs + ros_workspace_extra. The run
     # scripts source this as an underlay and skip rebuilding those packages,
     # saving the 5-7 min px4_msgs compile on every job.
     - name: Restore ROS external deps
-      id: ros-ext-cache
       if: ${{ fromJson(inputs.case-json).type != 'px4_build' }}
       uses: actions/cache@v4
       with:
         path: /opt/ros_external_ws
-        key: ros-ext-${{ steps.ros-deps-key.outputs.key }}-${{ runner.os }}
+        key: ros-ext-${{ steps.cache-keys.outputs.ros_deps_key }}-${{ runner.os }}
 
     - name: Restore PX4 ccache
       if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
       uses: actions/cache@v4
       with:
         path: ~/.ccache
-        key: px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-${{ runner.os }}
+        key: px4-sih-${{ steps.cache-keys.outputs.px4_sha }}-${{ runner.os }}
         restore-keys: |
-          px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-
+          px4-sih-${{ steps.cache-keys.outputs.px4_sha }}-
 
     # Pre-built PX4 SITL runtime files. run_px4_build.sh checks for bin/px4
     # and skips the full clone+make when the file is present, saving the
@@ -66,7 +63,7 @@ runs:
         path: |
           /tmp/PX4-Autopilot/build/px4_sitl_default/bin
           /tmp/PX4-Autopilot/build/px4_sitl_default/etc
-        key: px4-sitl-${{ fromJson(inputs.case-json).px4_ref }}-${{ runner.os }}
+        key: px4-sitl-${{ steps.cache-keys.outputs.px4_sha }}-${{ runner.os }}
 
     - name: Restore Micro-XRCE-DDS Agent
       if: ${{ fromJson(inputs.case-json).type == 'sim' }}
