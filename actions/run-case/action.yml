@@ -42,6 +42,33 @@ runs:
         path: /opt/ros_external_ws
         key: ros-ext-${{ steps.cache-keys.outputs.ros_deps_key }}-${{ runner.os }}
 
+    - name: Case summary
+      shell: bash
+      run: |
+        case='${{ inputs.case-json }}'
+        {
+          echo "## ${{ fromJson(inputs.case-json).name }}"
+          echo '| Field | Value |'
+          echo '|---|---|'
+          echo "$case" | python3 -c "
+        import json, sys
+        c = json.load(sys.stdin)
+        skip = {'resolved_airframe', 'ros_workspace_extra', 'env'}
+        for k, v in c.items():
+            if k not in skip:
+                print(f'| \`{k}\` | \`{v}\` |')
+        af = c.get('resolved_airframe') or {}
+        if af:
+            params = af.pop('params', {})
+            for k, v in af.items():
+                print(f'| \`airframe.{k}\` | \`{v}\` |')
+            for k, v in params.items():
+                print(f'| \`param.{k}\` | \`{v}\` |')
+        env = c.get('env') or {}
+        for k, v in env.items():
+            print(f'| \`env.{k}\` | \`{v}\` |')
+        "
+        } >> "$GITHUB_STEP_SUMMARY"
     - name: Restore PX4 ccache
       if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
       uses: actions/cache@v4
