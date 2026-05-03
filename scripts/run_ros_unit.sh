@@ -14,6 +14,36 @@ set -eo pipefail
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
 set -u
 
+# ──────────────────────────────────────────────────────────────────────────
+# External ROS deps: px4_msgs + ros_workspace_extra
+# Cached at /opt/ros_external_ws by actions/cache in run-case/action.yml.
+# On a cache hit the directory is already populated; we just source it.
+# On a cache miss we build it so actions/cache saves it for the next run.
+# ──────────────────────────────────────────────────────────────────────────
+EXT_WS=/opt/ros_external_ws
+if [ ! -f "${EXT_WS}/install/setup.bash" ]; then
+    echo "--- Building external ROS deps (px4_msgs + workspace extras) ---"
+    mkdir -p "${EXT_WS}/src"
+    python3 "${SCRIPTS}/generate_ros_repos.py" "${CASE_FILE}" "${REPO_ROOT}" \
+        > "${EXT_WS}/preflight.repos"
+    vcs import "${EXT_WS}/src" < "${EXT_WS}/preflight.repos"
+    (
+        cd "${EXT_WS}"
+        rosdep update --rosdistro "${ROS_DISTRO}" || true
+        rosdep install --from-paths src --ignore-src -r -y --rosdistro "${ROS_DISTRO}"
+        colcon build
+    )
+else
+    echo "--- Restored external ROS deps from cache ---"
+fi
+set +u
+# shellcheck disable=SC1090,SC1091
+source "${EXT_WS}/install/setup.bash"
+set -u
+
+# ──────────────────────────────────────────────────────────────────────────
+# Caller workspace: only the packages under test (px4_msgs is the underlay)
+# ──────────────────────────────────────────────────────────────────────────
 WS=/tmp/ros_ws
 rm -rf "${WS}"
 mkdir -p "${WS}/src"
@@ -28,11 +58,6 @@ if [ -d "${REPO_ROOT}/src" ]; then
 else
     echo "warn: ${REPO_ROOT}/src not found — caller has no ROS packages?" >&2
 fi
-
-python3 "${SCRIPTS}/generate_ros_repos.py" "${CASE_FILE}" "${REPO_ROOT}" \
-    > "${WS}/preflight.repos"
-
-vcs import "${WS}/src" < "${WS}/preflight.repos"
 
 (
     cd "${WS}"
