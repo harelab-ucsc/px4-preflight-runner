@@ -91,7 +91,7 @@ collect_artifacts() {
 trap collect_artifacts EXIT
 
 # ──────────────────────────────────────────────────────────────────────────
-# 1. PX4 build (cached via ccache + the runner's actions/cache step)
+# 1. PX4 build (cached via ccache + px4-sitl actions/cache step)
 # ──────────────────────────────────────────────────────────────────────────
 PX4_DIR="${PX4_DIR}" bash "${SCRIPTS}/run_px4_build.sh"
 
@@ -119,10 +119,31 @@ fi
 # ──────────────────────────────────────────────────────────────────────────
 # 3. ROS workspace
 # ──────────────────────────────────────────────────────────────────────────
-# ROS setup scripts reference unset vars; only enable nounset after sourcing
-# (and disable it again before sourcing the workspace overlay later).
+# ROS setup scripts reference unset vars; keep -u off in this script
+# (gotcha #3) and source setup files freely.
 # shellcheck disable=SC1090
 source "/opt/ros/${ROS_DISTRO}/setup.bash"
+
+# External deps: px4_msgs + ros_workspace_extra.
+# Cached at /opt/ros_external_ws by actions/cache in run-case/action.yml.
+EXT_WS=/opt/ros_external_ws
+if [ ! -f "${EXT_WS}/install/setup.bash" ]; then
+    echo "--- Building external ROS deps (px4_msgs + workspace extras) ---"
+    mkdir -p "${EXT_WS}/src"
+    python3 "${SCRIPTS}/generate_ros_repos.py" "${CASE_FILE}" "${REPO_ROOT}" \
+        > "${EXT_WS}/preflight.repos"
+    vcs import "${EXT_WS}/src" < "${EXT_WS}/preflight.repos"
+    (
+        cd "${EXT_WS}"
+        rosdep update --rosdistro "${ROS_DISTRO}" || true
+        rosdep install --from-paths src --ignore-src -r -y --rosdistro "${ROS_DISTRO}"
+        colcon build
+    )
+else
+    echo "--- Restored external ROS deps from cache ---"
+fi
+# shellcheck disable=SC1090,SC1091
+source "${EXT_WS}/install/setup.bash"
 
 rm -rf "${WS}"
 mkdir -p "${WS}/src"
@@ -131,9 +152,6 @@ if [ -d "${REPO_ROOT}/src" ]; then
     # node scripts that have lost their +x in transit.
     cp -a "${REPO_ROOT}/src/." "${WS}/src/"
 fi
-python3 "${SCRIPTS}/generate_ros_repos.py" "${CASE_FILE}" "${REPO_ROOT}" \
-    > "${WS}/preflight.repos"
-vcs import "${WS}/src" < "${WS}/preflight.repos"
 (
     cd "${WS}"
     rosdep update --rosdistro "${ROS_DISTRO}" || true

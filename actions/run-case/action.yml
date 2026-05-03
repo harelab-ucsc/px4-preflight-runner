@@ -20,6 +20,72 @@ runs:
     # actions/setup-python here: it overlays a hosted-toolcache Python whose
     # pip shebang points at /opt/hostedtoolcache/... — a path that doesn't
     # exist inside our container, breaking every `pip` invocation.
+
+    # Resolve every external ROS repo's version to its actual commit SHA via
+    # git ls-remote so that a push to a floating ref (e.g. 'main') busts the
+    # cache even when spec.yaml hasn't changed.
+    - name: Compute ROS external deps cache key
+      id: ros-deps-key
+      if: ${{ fromJson(inputs.case-json).type != 'px4_build' }}
+      shell: bash
+      env:
+        CASE_JSON: ${{ inputs.case-json }}
+      run: |
+        key=$(python3 - <<'PYEOF'
+import json, hashlib, os, re, subprocess
+
+case = json.loads(os.environ["CASE_JSON"])
+px4_ref = case.get("px4_ref", "main")
+ros_distro = case.get("ros_distro", "humble")
+extra = case.get("ros_workspace_extra") or {}
+
+def resolve_sha(url, version):
+    """Return the commit SHA for a git ref.
+
+    Falls back to the bare version string if the ref is already a full SHA
+    or if ls-remote fails (network hiccup, private repo without auth, etc.).
+    """
+    if re.fullmatch(r"[0-9a-f]{40}", version.lower()):
+        return version
+    try:
+        out = subprocess.check_output(
+            ["git", "ls-remote", "--exit-code", url, version],
+            stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+        return out.decode().splitlines()[0].split("\t")[0]
+    except Exception:
+        return version
+
+# Derive the px4_msgs branch from px4_ref and resolve it to a SHA.
+m = re.match(r"^v(\d+)\.(\d+)", px4_ref)
+msgs_branch = f"release/{m.group(1)}.{m.group(2)}" if m else "main"
+msgs_sha = resolve_sha("https://github.com/PX4/px4_msgs.git", msgs_branch)
+
+# Resolve every ros_workspace_extra entry's version to a SHA.
+resolved = {}
+for name in sorted(extra):
+    entry = dict(extra[name])
+    entry["version"] = resolve_sha(entry.get("url", ""), entry.get("version", ""))
+    resolved[name] = entry
+
+blob = f"{px4_ref}-{ros_distro}-{msgs_sha}-{json.dumps(resolved, sort_keys=True)}"
+print(hashlib.sha256(blob.encode()).hexdigest()[:16])
+PYEOF
+        )
+        echo "key=${key}" >> "${GITHUB_OUTPUT}"
+
+    # Pre-built colcon install for px4_msgs + ros_workspace_extra. The run
+    # scripts source this as an underlay and skip rebuilding those packages,
+    # saving the 5-7 min px4_msgs compile on every job.
+    - name: Restore ROS external deps
+      id: ros-ext-cache
+      if: ${{ fromJson(inputs.case-json).type != 'px4_build' }}
+      uses: actions/cache@v4
+      with:
+        path: /opt/ros_external_ws
+        key: ros-ext-${{ steps.ros-deps-key.outputs.key }}-${{ runner.os }}
+
     - name: Restore PX4 ccache
       if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
       uses: actions/cache@v4
@@ -28,6 +94,20 @@ runs:
         key: px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-${{ runner.os }}
         restore-keys: |
           px4-sih-${{ fromJson(inputs.case-json).px4_ref }}-
+
+    # Pre-built PX4 SITL runtime files. run_px4_build.sh checks for bin/px4
+    # and skips the full clone+make when the file is present, saving the
+    # 10-20 min first-build cost on every sim/px4_build job.
+    # Only bin/ and etc/ are cached — intermediate object files are handled
+    # by ccache above instead.
+    - name: Restore PX4 build
+      if: ${{ fromJson(inputs.case-json).type != 'ros_unit' }}
+      uses: actions/cache@v4
+      with:
+        path: |
+          /tmp/PX4-Autopilot/build/px4_sitl_default/bin
+          /tmp/PX4-Autopilot/build/px4_sitl_default/etc
+        key: px4-sitl-${{ fromJson(inputs.case-json).px4_ref }}-${{ runner.os }}
 
     - name: Restore Micro-XRCE-DDS Agent
       if: ${{ fromJson(inputs.case-json).type == 'sim' }}
