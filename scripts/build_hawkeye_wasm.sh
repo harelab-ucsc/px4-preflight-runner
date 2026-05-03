@@ -43,7 +43,7 @@ git -C "${HAWKEYE_DIR}" checkout "${HAWKEYE_PIN}"
 )
 
 # Required artifacts — fail loudly if any are missing.
-for f in hawkeye.js hawkeye.wasm; do
+for f in hawkeye.js hawkeye.wasm index.html; do
     if [ ! -f "${HAWKEYE_DIR}/wasm/build/${f}" ]; then
         echo "build_hawkeye_wasm: expected artifact ${f} not produced" >&2
         exit 1
