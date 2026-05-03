@@ -28,7 +28,9 @@ else
         # PX4_SIM_MODEL.
         make px4_sitl_default
     )
-    command -v ccache >/dev/null && ccache -s || true
+    if command -v ccache >/dev/null; then
+        ccache -s || true
+    fi
 fi
 
 mkdir -p /tmp/preflight_output

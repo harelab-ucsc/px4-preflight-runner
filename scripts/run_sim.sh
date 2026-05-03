@@ -79,7 +79,9 @@ collect_artifacts() {
     if [ -d /root/.ros/log ]; then
         cp -r /root/.ros/log "${OUTPUT}/ros_launch_logs" 2>/dev/null || true
     fi
-    [ -f "${CASE_FILE}" ] && cp "${CASE_FILE}" "${OUTPUT}/case.json" 2>/dev/null || true
+    if [ -f "${CASE_FILE}" ]; then
+        cp "${CASE_FILE}" "${OUTPUT}/case.json" 2>/dev/null || true
+    fi
     if [ -f /tmp/waypoint_results.json ] \
        && [ ! -f "${OUTPUT}/waypoint_results.json" ]; then
         cp /tmp/waypoint_results.json "${OUTPUT}/" 2>/dev/null || true
