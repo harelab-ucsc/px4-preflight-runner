@@ -24,8 +24,11 @@ jobs:
       - name: Install lint deps
         run: |
           pip install --quiet pyyaml pytest yamllint
-          curl -sSL https://github.com/rhysd/actionlint/releases/latest/download/actionlint_linux_amd64.tar.gz \
-            | tar xz -C /usr/local/bin actionlint
+          # rhysd publishes a downloader that resolves the latest asset name
+          # for us, instead of guessing the versioned URL.
+          bash <(curl -fsSL \
+            https://raw.githubusercontent.com/rhysd/actionlint/main/scripts/download-actionlint.bash)
+          sudo mv ./actionlint /usr/local/bin/actionlint
           sudo apt-get update -qq && sudo apt-get install -y -qq shellcheck
 
       - name: actionlint
