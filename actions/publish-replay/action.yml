@@ -39,15 +39,14 @@ runs:
         version: '3.1.61'
         actions-cache-folder: 'emsdk-cache'
 
-    # Cache the Hawkeye WASM build keyed on the pinned commit. After the
-    # first run this is just a download + extract; rebuilds only happen
-    # when the pin in build_hawkeye_wasm.sh moves.
+    # Keyed on the build script content — the pinned Hawkeye SHA lives there,
+    # so any pin bump automatically busts the cache.
     - name: Restore Hawkeye WASM cache
       id: hawkeye-cache
       uses: actions/cache@v4
       with:
         path: ${{ github.workspace }}/.hawkeye-wasm
-        key: hawkeye-wasm-${{ hashFiles('scripts/build_hawkeye_wasm.sh') }}
+        key: hawkeye-wasm-${{ hashFiles('.runner/scripts/build_hawkeye_wasm.sh') }}
 
     - name: Build Hawkeye WASM
       if: steps.hawkeye-cache.outputs.cache-hit != 'true'
