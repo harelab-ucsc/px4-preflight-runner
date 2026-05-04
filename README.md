@@ -12,7 +12,6 @@ the caller repo, fans the resulting matrix out, and executes each case.
 | `actions/parse-spec/` | Composite action: caller spec → matrix JSON |
 | `actions/run-case/` | Composite action: one matrix entry → one job |
 | `scripts/` | Python + bash backing the composite actions |
-| `templates/` | Jinja2 templates for runtime config injection |
 | `docker/` | Dockerfile for the prebuilt runner image |
 | `testdata/minimal_pkg/` | Self-test fixture: a minimal ROS package + spec |
 | `tests/` | Unit tests for the Python scripts |
